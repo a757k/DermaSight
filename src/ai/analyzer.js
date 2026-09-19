@@ -6,7 +6,7 @@ async function getClassifier() {
   if (!classifier) {
     classifier = await pipeline(
       "image-classification",
-      "LaurianeMD/vit-skin-disease"
+      "sazio/skin-mole-vit-onnx"
     );
   }
 
@@ -29,7 +29,7 @@ export async function analyzeImage(image, bodyPart) {
         status: "uncertain",
         title: "Unable to assess reliably",
         message:
-          "The image could not be assessed reliably. Try taking a clearer, closer photo.",
+          "The image could not be assessed reliably. Try a clearer, closer photo.",
         confidence: 0,
         findings: [],
         bodyPart
@@ -37,12 +37,13 @@ export async function analyzeImage(image, bodyPart) {
     }
 
     const top = results[0];
+    const confidence = Math.round(top.score * 100);
 
     return {
       status: "possible",
       title: `Possible ${top.label}`,
       message:
-        "The image has visual features that may be associated with this condition. This is not a diagnosis.",
+        "The AI found visual features that match this category. This does not confirm that you have this condition.",
       confidence: top.score,
       findings: results.slice(0, 5).map((item) => ({
         label: item.label,
