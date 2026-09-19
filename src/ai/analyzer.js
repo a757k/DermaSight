@@ -1,84 +1,68 @@
-import {
-  getConfidencePercent,
-  isReliable
-} from "./confidence";
+import { pipeline } from "@huggingface/transformers";
 
-export async function analyzeImage(image, bodyPart) {
-  if (!image) {
-    return {
-      status: "unable",
-      title: "No image available",
-      message: "No image was provided.",
-      findings: []
-    };
+let classifier = null;
+
+async function getClassifier() {
+  if (!classifier) {
+    classifier = await pipeline(
+      "image-classification",
+      "sazio/skin-mole-vit-onnx"
+    );
   }
 
-  /*
-   * Hugging Face connection will be added here.
-   *
-   * IMPORTANT:
-   * Never put your Hugging Face API token in this file.
-   *
-   * The frontend will send the image to:
-   *
-   * /api/analyze
-   *
-   * A Netlify serverless function will then securely
-   * communicate with Hugging Face.
-   */
+  return classifier;
+}
 
+export async function analyzeImage(image, bodyPart) {
   try {
-    const response = await fetch("/api/analyze", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        image,
-        bodyPart
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error("AI request failed");
+    if (!image) {
+      throw new Error("No image provided.");
     }
 
-    const data = await response.json();
+    const pipe = await getClassifier();
 
-    if (
-      !data ||
-      typeof data.confidence !== "number" ||
-      !isReliable(data.confidence)
-    ) {
+    const results = await pipe(image);
+
+    if (!results || results.length === 0) {
       return {
-        status: "unable",
+        status: "uncertain",
         title: "Unable to assess reliably",
         message:
-          "The AI was not confident enough to provide a reliable visual result.",
-        findings: []
+          "The AI could not find a reliable visual pattern in this image.",
+        confidence: 0,
+        findings: [],
+        bodyPart
       };
     }
 
-    return {
-      status: data.status || "clear",
-      title: data.title || "Visual pattern detected",
-      message:
-        data.message ||
-        "The AI identified a visual pattern that may be associated with the result below.",
-      confidence: getConfidencePercent(data.confidence),
-      findings: Array.isArray(data.findings)
-        ? data.findings
-        : []
-    };
-  } catch (error) {
-    console.error(error);
+    const top = results[0];
 
     return {
-      status: "unable",
-      title: "Unable to assess reliably",
+      status: top.score >= 0.65 ? "possible" : "uncertain",
+      title:
+        top.score >= 0.65
+          ? "Visual pattern detected"
+          : "Unable to assess reliably",
       message:
-        "The AI service is currently unavailable or the image could not be assessed reliably.",
-      findings: []
+        "This is an AI-generated visual screening result, not a diagnosis.",
+      confidence: top.score,
+      findings: results.slice(0, 5).map((item) => ({
+        label: item.label,
+        confidence: item.score
+      })),
+      bodyPart
+    };
+  } catch (error) {
+    console.error("Derma AI error:", error);
+
+    return {
+      status: "error",
+      title: "Analysis failed",
+      message:
+        "The AI could not analyze this image. Please try another clear image.",
+      confidence: 0,
+      findings: [],
+      bodyPart
     };
   }
 }
