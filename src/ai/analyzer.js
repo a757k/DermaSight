@@ -23,12 +23,14 @@ export async function analyzeImage(image, bodyPart) {
 
     const results = await pipe(image);
 
+    console.log("DERMA AI MODEL RESULTS:", results);
+
     if (!results || results.length === 0) {
       return {
         status: "uncertain",
         title: "Unable to assess reliably",
         message:
-          "The AI could not find a reliable visual pattern in this image.",
+          "The image could not be assessed reliably. Try taking a clearer, closer photo.",
         confidence: 0,
         findings: [],
         bodyPart
@@ -38,13 +40,10 @@ export async function analyzeImage(image, bodyPart) {
     const top = results[0];
 
     return {
-      status: top.score >= 0.65 ? "possible" : "uncertain",
-      title:
-        top.score >= 0.65
-          ? "Visual pattern detected"
-          : "Unable to assess reliably",
+      status: "possible",
+      title: "Visual pattern detected",
       message:
-        "This is an AI-generated visual screening result, not a diagnosis.",
+        "The AI identified a visual pattern in the image. This is a screening result, not a diagnosis.",
       confidence: top.score,
       findings: results.slice(0, 5).map((item) => ({
         label: item.label,
@@ -53,13 +52,13 @@ export async function analyzeImage(image, bodyPart) {
       bodyPart
     };
   } catch (error) {
-    console.error("Derma AI error:", error);
+    console.error("DERMA AI ERROR:", error);
 
     return {
       status: "error",
       title: "Analysis failed",
       message:
-        "The AI could not analyze this image. Please try another clear image.",
+        "The image could not be analyzed. Please try another clear photo.",
       confidence: 0,
       findings: [],
       bodyPart
