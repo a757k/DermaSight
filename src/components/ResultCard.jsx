@@ -14,6 +14,11 @@ function ResultCard({
     result?.message ||
     "No reliable result could be produced.";
 
+  const confidence =
+    typeof result?.confidence === "number"
+      ? Math.round(result.confidence * 100)
+      : null;
+
   return (
     <section className="result-page">
       <div className="hero-badge">ANALYSIS COMPLETE</div>
@@ -36,15 +41,17 @@ function ResultCard({
         className={`result-card ${
           status === "concerning"
             ? "result-concerning"
-            : status === "clear"
+            : status === "clear" || status === "low_confidence"
             ? "result-clear"
+            : status === "possible"
+            ? "result-unable"
             : "result-unable"
         }`}
       >
         <div className="result-icon">
           {status === "concerning"
             ? "!"
-            : status === "clear"
+            : status === "clear" || status === "low_confidence"
             ? "✓"
             : "?"}
         </div>
@@ -52,25 +59,43 @@ function ResultCard({
         <div>
           <h2>{title}</h2>
           <p>{message}</p>
+
+          {confidence !== null && status !== "error" && (
+            <div className="confidence-display">
+              AI confidence: <strong>{confidence}%</strong>
+            </div>
+          )}
         </div>
       </div>
 
       {result?.findings?.length > 0 && (
         <div className="findings-card">
-          <h2>Visual findings</h2>
+          <h2>Other possible patterns</h2>
 
-          {result.findings.map((finding, index) => (
-            <div className="finding" key={index}>
-              <div>
-                <strong>{finding.name}</strong>
-                <p>{finding.description}</p>
-              </div>
+          {result.findings
+            .filter((finding) => finding.label)
+            .slice(1, 4)
+            .map((finding, index) => {
+              const percentage =
+                typeof finding.confidence === "number"
+                  ? Math.round(finding.confidence * 100)
+                  : null;
 
-              {finding.confidence && (
-                <span>{finding.confidence}</span>
-              )}
-            </div>
-          ))}
+              return (
+                <div className="finding" key={index}>
+                  <div>
+                    <strong>{finding.label}</strong>
+                    <p>
+                      Possible visual match based on the AI model.
+                    </p>
+                  </div>
+
+                  {percentage !== null && (
+                    <span>{percentage}%</span>
+                  )}
+                </div>
+              );
+            })}
         </div>
       )}
 
@@ -78,9 +103,9 @@ function ResultCard({
         <strong>Important</strong>
 
         <p>
-          This result is a visual screening result, not a
-          medical diagnosis. Skin conditions can look similar
-          and an image cannot reliably rule out disease.
+          This is an AI visual screening result, not a
+          medical diagnosis. The AI can make mistakes and
+          cannot reliably rule out skin conditions.
         </p>
 
         <p>
