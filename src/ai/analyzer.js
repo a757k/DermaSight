@@ -20,17 +20,16 @@ export async function analyzeImage(image, bodyPart) {
     }
 
     const pipe = await getClassifier();
-
     const results = await pipe(image);
 
-    console.log("DERMA AI MODEL RESULTS:", results);
+    console.log("DERMA AI RESULTS:", results);
 
     if (!results || results.length === 0) {
       return {
         status: "uncertain",
         title: "Unable to assess reliably",
         message:
-          "The image could not be assessed reliably. Try taking a clearer, closer photo.",
+          "The image did not produce a reliable result. Try a clearer, closer photo.",
         confidence: 0,
         findings: [],
         bodyPart
@@ -38,13 +37,30 @@ export async function analyzeImage(image, bodyPart) {
     }
 
     const top = results[0];
+    const confidence = top.score;
+    const label = top.label;
+
+    if (confidence >= 0.65) {
+      return {
+        status: "possible",
+        title: `Possible ${label}`,
+        message:
+          "The image shows visual characteristics associated with this category. This is not a diagnosis and should not be used to confirm a medical condition.",
+        confidence,
+        findings: results.slice(0, 5).map((item) => ({
+          label: item.label,
+          confidence: item.score
+        })),
+        bodyPart
+      };
+    }
 
     return {
-      status: "possible",
-      title: "Visual pattern detected",
+      status: "low_confidence",
+      title: "No clear concerning pattern detected",
       message:
-        "The AI identified a visual pattern in the image. This is a screening result, not a diagnosis.",
-      confidence: top.score,
+        "The AI did not identify a strong match to the categories it was trained to recognize. This does not rule out a skin condition.",
+      confidence,
       findings: results.slice(0, 5).map((item) => ({
         label: item.label,
         confidence: item.score
