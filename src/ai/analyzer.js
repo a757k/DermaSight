@@ -6,7 +6,7 @@ async function getClassifier() {
   if (!classifier) {
     classifier = await pipeline(
       "image-classification",
-      "sazio/skin-mole-vit-onnx"
+      "LaurianeMD/vit-skin-disease"
     );
   }
 
@@ -29,7 +29,7 @@ export async function analyzeImage(image, bodyPart) {
         status: "uncertain",
         title: "Unable to assess reliably",
         message:
-          "The image did not produce a reliable result. Try a clearer, closer photo.",
+          "The image could not be assessed reliably. Try taking a clearer, closer photo.",
         confidence: 0,
         findings: [],
         bodyPart
@@ -37,30 +37,13 @@ export async function analyzeImage(image, bodyPart) {
     }
 
     const top = results[0];
-    const confidence = top.score;
-    const label = top.label;
-
-    if (confidence >= 0.65) {
-      return {
-        status: "possible",
-        title: `Possible ${label}`,
-        message:
-          "The image shows visual characteristics associated with this category. This is not a diagnosis and should not be used to confirm a medical condition.",
-        confidence,
-        findings: results.slice(0, 5).map((item) => ({
-          label: item.label,
-          confidence: item.score
-        })),
-        bodyPart
-      };
-    }
 
     return {
-      status: "low_confidence",
-      title: "No clear concerning pattern detected",
+      status: "possible",
+      title: `Possible ${top.label}`,
       message:
-        "The AI did not identify a strong match to the categories it was trained to recognize. This does not rule out a skin condition.",
-      confidence,
+        "The image has visual features that may be associated with this condition. This is not a diagnosis.",
+      confidence: top.score,
       findings: results.slice(0, 5).map((item) => ({
         label: item.label,
         confidence: item.score
@@ -74,7 +57,7 @@ export async function analyzeImage(image, bodyPart) {
       status: "error",
       title: "Analysis failed",
       message:
-        "The image could not be analyzed. Please try another clear photo.",
+        "The AI could not analyze this image. Please try another clear photo.",
       confidence: 0,
       findings: [],
       bodyPart
