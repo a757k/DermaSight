@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@gradio/client": "^1.19.0",
     "@huggingface/transformers": "^3.7.2",
     "@vitejs/plugin-react": "^5.0.2",
     "onnxruntime-web": "^1.22.0",
