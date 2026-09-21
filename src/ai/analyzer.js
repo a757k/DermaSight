@@ -27,6 +27,12 @@ export async function analyzeImage(image, bodyPart) {
 
     console.log("DERMA AI RESULT:", result);
 
+    if (result.status === "error") {
+      throw new Error(
+        result.message || "AI analysis failed."
+      );
+    }
+
     return result;
   } catch (error) {
     console.error("DERMA AI ERROR:", error);
