@@ -4,7 +4,8 @@ function ResultCard({
   bodyPart,
   onNewScan
 }) {
-  const status = result?.status || "unable";
+  const status =
+    result?.status || "unable";
 
   const title =
     result?.title ||
@@ -14,14 +15,11 @@ function ResultCard({
     result?.message ||
     "No reliable result could be produced.";
 
-  const confidence =
-    typeof result?.confidence === "number"
-      ? Math.round(result.confidence * 100)
-      : null;
-
   return (
     <section className="result-page">
-      <div className="hero-badge">ANALYSIS COMPLETE</div>
+      <div className="hero-badge">
+        ANALYSIS COMPLETE
+      </div>
 
       <h1>Your skin analysis</h1>
 
@@ -38,64 +36,57 @@ function ResultCard({
       </div>
 
       <div
-        className={`result-card ${
-          status === "concerning"
-            ? "result-concerning"
-            : status === "clear" || status === "low_confidence"
-            ? "result-clear"
-            : status === "possible"
-            ? "result-unable"
-            : "result-unable"
-        }`}
+        className={
+          "result-card " +
+          (
+            status === "complete"
+              ? "result-clear"
+              : status === "concerning"
+              ? "result-concerning"
+              : "result-unable"
+          )
+        }
       >
         <div className="result-icon">
-          {status === "concerning"
-            ? "!"
-            : status === "clear" || status === "low_confidence"
+          {status === "complete"
             ? "✓"
+            : status === "concerning"
+            ? "!"
             : "?"}
         </div>
 
         <div>
           <h2>{title}</h2>
           <p>{message}</p>
-
-          {confidence !== null && status !== "error" && (
-            <div className="confidence-display">
-              AI confidence: <strong>{confidence}%</strong>
-            </div>
-          )}
         </div>
       </div>
 
       {result?.findings?.length > 0 && (
         <div className="findings-card">
-          <h2>Other possible patterns</h2>
+          <h2>AI predictions</h2>
 
-          {result.findings
-            .filter((finding) => finding.label)
-            .slice(1, 4)
-            .map((finding, index) => {
-              const percentage =
-                typeof finding.confidence === "number"
-                  ? Math.round(finding.confidence * 100)
-                  : null;
+          {result.findings.map(
+            (finding, index) => (
+              <div
+                className="finding"
+                key={index}
+              >
+                <div>
+                  <strong>
+                    {finding.name}
+                  </strong>
 
-              return (
-                <div className="finding" key={index}>
-                  <div>
-                    <strong>{finding.label}</strong>
-                    <p>
-                      Possible visual match based on the AI model.
-                    </p>
-                  </div>
-
-                  {percentage !== null && (
-                    <span>{percentage}%</span>
-                  )}
+                  <p>
+                    {finding.description}
+                  </p>
                 </div>
-              );
-            })}
+
+                <span>
+                  {finding.confidence}
+                </span>
+              </div>
+            )
+          )}
         </div>
       )}
 
@@ -103,16 +94,27 @@ function ResultCard({
         <strong>Important</strong>
 
         <p>
-          This is an AI visual screening result, not a
-          medical diagnosis. The AI can make mistakes and
-          cannot reliably rule out skin conditions.
+          This is an AI visual screening
+          result, not a medical diagnosis.
+          The model can make mistakes and
+          skin conditions can look similar.
         </p>
 
         <p>
-          If a spot or lesion is new, changing, bleeding,
-          painful, persistent, or concerning to you, consider
-          having it assessed by a qualified healthcare
-          professional.
+          The percentage shown is the
+          model's classification score. It
+          is NOT the probability that you
+          have the condition.
+        </p>
+
+        <p>
+          A normal or low-confidence result
+          does not rule out disease. If a
+          spot or lesion is new, changing,
+          bleeding, painful, persistent, or
+          concerning to you, consider having
+          it assessed by a qualified
+          healthcare professional.
         </p>
       </div>
 
