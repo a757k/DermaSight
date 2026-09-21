@@ -152,33 +152,68 @@ export async function analyzeImage(image, bodyPart) {
 
     const top = results[0];
 
-    if (!top || top.score < 0.55) {
+    if (!top) {
       return {
         status: "uncertain",
-        title: "No strong match found",
+        title: "Unable to assess reliably",
         message:
-          "The AI did not find a strong visual match among the skin conditions it was trained to recognize. This does not mean your skin is disease-free.",
-        confidence: top?.score || 0,
-        findings: results.slice(0, 5).map((item) => ({
-          label: readableLabel(item.label),
-          confidence: item.score
-        })),
+          "The AI could not produce a reliable result from this image.",
+        confidence: 0,
+        findings: [],
         bodyPart
       };
     }
 
+    const topPercentage = Math.round(
+      top.score * 100
+    );
+
     const name = readableLabel(top.label);
 
+    /*
+      We keep the wording cautious.
+
+      The percentage is the model's classification
+      confidence, NOT the probability that the person
+      actually has the condition.
+    */
+
+    let title;
+    let message;
+
+    if (top.score >= 0.55) {
+      title = `Possible ${name}`;
+
+      message =
+        `The image contains visual features that may be associated with ${name}. ` +
+        `This is an AI screening result, not a medical diagnosis.`;
+    } else {
+      title = "No strong match found";
+
+      message =
+        "The AI did not find a strong match among the conditions it was trained to recognize. " +
+        "This does not mean your skin is disease-free.";
+    }
+
     return {
-      status: "possible",
-      title: `Possible ${name}`,
-      message:
-        `The image contains visual features that may be associated with ${name}. This is a screening result, not a medical diagnosis.`,
+      status:
+        top.score >= 0.55
+          ? "possible"
+          : "uncertain",
+
+      title,
+
+      message,
+
       confidence: top.score,
-      findings: results.slice(0, 5).map((item) => ({
-        label: readableLabel(item.label),
-        confidence: item.score
-      })),
+
+      findings: results
+        .slice(0, 5)
+        .map((item) => ({
+          label: readableLabel(item.label),
+          confidence: item.score
+        })),
+
       bodyPart
     };
   } catch (error) {
@@ -189,11 +224,16 @@ export async function analyzeImage(image, bodyPart) {
 
     return {
       status: "error",
+
       title: "Analysis failed",
+
       message:
         "The AI could not analyze this image. Please try another clear, well-lit photo.",
+
       confidence: 0,
+
       findings: [],
+
       bodyPart
     };
   }
