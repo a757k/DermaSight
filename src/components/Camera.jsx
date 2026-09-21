@@ -12,14 +12,15 @@ function Camera({ bodyPart, onCapture, onBack }) {
     setError("");
 
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment",
-          width: { ideal: 1280 },
-          height: { ideal: 1280 }
-        },
-        audio: false
-      });
+      const mediaStream =
+        await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 1280 }
+          },
+          audio: false
+        });
 
       setStream(mediaStream);
       setCameraOpen(true);
@@ -38,7 +39,9 @@ function Camera({ bodyPart, onCapture, onBack }) {
 
   function stopCamera() {
     if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
+      stream.getTracks().forEach((track) => {
+        track.stop();
+      });
     }
 
     setStream(null);
@@ -65,7 +68,10 @@ function Camera({ bodyPart, onCapture, onBack }) {
       canvas.height
     );
 
-    const image = canvas.toDataURL("image/jpeg", 0.9);
+    const image = canvas.toDataURL(
+      "image/jpeg",
+      0.9
+    );
 
     stopCamera();
     onCapture(image);
@@ -75,6 +81,8 @@ function Camera({ bodyPart, onCapture, onBack }) {
     const file = event.target.files?.[0];
 
     if (!file) return;
+
+    setError("");
 
     if (!file.type.startsWith("image/")) {
       setError("Please choose an image file.");
@@ -87,30 +95,47 @@ function Camera({ bodyPart, onCapture, onBack }) {
       onCapture(reader.result);
     };
 
+    reader.onerror = () => {
+      setError(
+        "The image could not be loaded. Please try another photo."
+      );
+    };
+
     reader.readAsDataURL(file);
+
+    // Allows the user to select the same image again later.
+    event.target.value = "";
   }
 
   const readablePart =
-    bodyPart.charAt(0).toUpperCase() + bodyPart.slice(1);
+    bodyPart.charAt(0).toUpperCase() +
+    bodyPart.slice(1);
 
   return (
     <section className="camera-page">
-      <button className="back-button" onClick={onBack}>
+      <button
+        className="back-button"
+        onClick={onBack}
+      >
         ← Back
       </button>
 
       <div className="page-heading">
-        <div className="hero-badge">STEP 2 OF 3</div>
+        <div className="hero-badge">
+          STEP 2 OF 3
+        </div>
 
         <h1>
           Capture your
           <br />
-          <span>{readablePart.toLowerCase()}</span>
+          <span>
+            {readablePart.toLowerCase()}
+          </span>
         </h1>
 
         <p>
-          Use bright, even lighting and keep the camera
-          focused on the skin.
+          Use bright, even lighting and keep the
+          camera focused on the skin.
         </p>
       </div>
 
@@ -133,7 +158,9 @@ function Camera({ bodyPart, onCapture, onBack }) {
 
             <button
               className="secondary-button"
-              onClick={() => fileInput.current?.click()}
+              onClick={() =>
+                fileInput.current?.click()
+              }
             >
               <span>↑</span>
               Upload Photo
@@ -143,7 +170,6 @@ function Camera({ bodyPart, onCapture, onBack }) {
               ref={fileInput}
               type="file"
               accept="image/*"
-              capture="environment"
               hidden
               onChange={handleUpload}
             />
@@ -179,7 +205,11 @@ function Camera({ bodyPart, onCapture, onBack }) {
         </div>
       )}
 
-      {error && <div className="error-message">{error}</div>}
+      {error && (
+        <div className="error-message">
+          {error}
+        </div>
+      )}
 
       <div className="photo-tips">
         <div>
