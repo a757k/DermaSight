@@ -30,18 +30,6 @@ export default async function handler(request) {
       );
     }
 
-    /*
-     * HUGGING FACE CONNECTION
-     *
-     * We will put the Hugging Face model/API request here.
-     *
-     * The token must be stored in Netlify as:
-     *
-     * HUGGINGFACE_TOKEN
-     *
-     * Never put the actual token directly in this file.
-     */
-
     const token = process.env.HUGGINGFACE_TOKEN;
 
     if (!token) {
@@ -59,18 +47,27 @@ export default async function handler(request) {
     }
 
     /*
-     * The exact Hugging Face model endpoint will be
-     * connected here after choosing the model.
+     * TEMPORARY SERVER TEST
+     *
+     * This confirms that:
+     * Phone/browser
+     *      ↓
+     * analyzer.js
+     *      ↓
+     * Netlify Function
+     *
+     * is working before we connect the actual AI model.
      */
 
     return new Response(
       JSON.stringify({
-        status: "unable",
-        title: "AI model not connected yet",
+        status: "clear",
+        title: "Server connection working",
         message:
-          "The Derma AI interface is working, but the dermatology AI model has not been connected yet.",
+          "Derma AI successfully sent the image to the secure AI server. The dermatology model is the next component to connect.",
         confidence: 0,
-        findings: []
+        findings: [],
+        bodyPart: body.bodyPart || "Unknown"
       }),
       {
         status: 200,
@@ -80,11 +77,16 @@ export default async function handler(request) {
       }
     );
   } catch (error) {
-    console.error(error);
+    console.error("DERMA AI SERVER ERROR:", error);
 
     return new Response(
       JSON.stringify({
-        error: "Server error"
+        status: "error",
+        title: "Analysis failed",
+        message:
+          "The AI server could not process this image.",
+        confidence: 0,
+        findings: []
       }),
       {
         status: 500,
