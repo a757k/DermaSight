@@ -1,4 +1,3 @@
-```js
 export async function analyzeImage(image, bodyPart) {
   try {
     if (!image) {
@@ -13,30 +12,24 @@ export async function analyzeImage(image, bodyPart) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        image,
-        bodyPart
+        image: image,
+        bodyPart: bodyPart
       })
     });
 
     if (!response.ok) {
       throw new Error(
-        `AI server returned ${response.status}`
+        "AI server returned status " + response.status
       );
     }
 
     const result = await response.json();
 
-    console.log(
-      "DERMA AI RESULT:",
-      result
-    );
+    console.log("DERMA AI RESULT:", result);
 
     return result;
   } catch (error) {
-    console.error(
-      "DERMA AI ERROR:",
-      error
-    );
+    console.error("DERMA AI ERROR:", error);
 
     return {
       status: "error",
@@ -45,8 +38,7 @@ export async function analyzeImage(image, bodyPart) {
         "The AI could not analyze this image. Please try another clear, well-lit photo.",
       confidence: 0,
       findings: [],
-      bodyPart
+      bodyPart: bodyPart
     };
   }
 }
-```
