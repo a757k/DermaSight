@@ -1,7 +1,10 @@
+import { Client, handle_file } from "@gradio/client";
+
 export default async function handler(request) {
   if (request.method !== "POST") {
     return new Response(
       JSON.stringify({
+        status: "error",
         error: "Method not allowed"
       }),
       {
@@ -19,6 +22,7 @@ export default async function handler(request) {
     if (!body.image) {
       return new Response(
         JSON.stringify({
+          status: "error",
           error: "No image provided"
         }),
         {
@@ -30,68 +34,205 @@ export default async function handler(request) {
       );
     }
 
-    const token = process.env.HUGGINGFACE_TOKEN;
+    console.log("DERMA AI: Connecting to skin model...");
 
-    if (!token) {
-      return new Response(
-        JSON.stringify({
-          error: "Hugging Face token is not configured."
-        }),
-        {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
+    const imageParts = body.image.split(",");
+
+    if (imageParts.length < 2) {
+      throw new Error("Invalid image data.");
+    }
+
+    const base64Image = imageParts[1];
+
+    const imageBuffer = Buffer.from(
+      base64Image,
+      "base64"
+    );
+
+    const imageBlob = new Blob(
+      [imageBuffer],
+      {
+        type: "image/jpeg"
+      }
+    );
+
+    const app = await Client.connect(
+      "cybernatedArt/Skin_disease_detection"
+    );
+
+    console.log(
+      "DERMA AI: Connected to skin model."
+    );
+
+    const result = await app.predict(
+      "/predict",
+      [
+        handle_file(imageBlob)
+      ]
+    );
+
+    console.log(
+      "DERMA AI MODEL RESULT:",
+      result
+    );
+
+    if (
+      !result ||
+      !result.data ||
+      !result.data[0]
+    ) {
+      throw new Error(
+        "The skin model returned no predictions."
       );
     }
 
-    /*
-     * TEMPORARY SERVER TEST
-     *
-     * This confirms that:
-     * Phone/browser
-     *      ↓
-     * analyzer.js
-     *      ↓
-     * Netlify Function
-     *
-     * is working before we connect the actual AI model.
-     */
+    const predictionData = result.data[0];
+
+    let predictions = [];
+
+    if (
+      typeof predictionData === "object" &&
+      !Array.isArray(predictionData)
+    ) {
+      predictions = Object.entries(
+        predictionData
+      ).map(([label, score]) => ({
+        label: label,
+        confidence: Number(score)
+      }));
+    } else if (Array.isArray(predictionData)) {
+      predictions = predictionData
+        .map((item) => {
+          if (
+            Array.isArray(item) &&
+            item.length >= 2
+          ) {
+            return {
+              label: String(item[0]),
+              confidence: Number(item[1])
+            };
+          }
+
+          if (
+            item &&
+            typeof item === "object"
+          ) {
+            return {
+              label:
+                item.label ||
+                item.name ||
+                "Unknown",
+              confidence:
+                Number(item.confidence) ||
+                Number(item.score) ||
+                0
+            };
+          }
+
+          return null;
+        })
+        .filter(Boolean);
+    }
+
+    predictions = predictions
+      .filter(
+        (item) =>
+          item.label &&
+          Number.isFinite(item.confidence)
+      )
+      .sort(
+        (a, b) =>
+          b.confidence - a.confidence
+      )
+      .slice(0, 5);
+
+    if (predictions.length === 0) {
+      throw new Error(
+        "Could not read the model predictions."
+      );
+    }
+
+    const topPrediction =
+      predictions[0];
+
+    const topConfidence =
+      Math.round(
+        topPrediction.confidence * 100
+      );
+
+    let status = "complete";
+
+    if (topConfidence < 55) {
+      status = "unable";
+    }
+
+    let title =
+      "Possible visual match";
+
+    let message =
+      "The AI detected visual characteristics that may be associated with " +
+      topPrediction.label +
+      ". This result is not a medical diagnosis.";
+
+    if (status === "unable") {
+      title =
+        "Unable to assess reliably";
+
+      message =
+        "The AI did not find a strong enough visual match to provide a reliable screening result.";
+    }
+
+    const findings =
+      predictions.map((item) => ({
+        name: item.label,
+        description:
+          "Visual characteristics may be associated with this condition.",
+        confidence:
+          Math.round(
+            item.confidence * 100
+          ) + "%"
+      }));
 
     return new Response(
       JSON.stringify({
-        status: "clear",
-        title: "Server connection working",
-        message:
-          "Derma AI successfully sent the image to the secure AI server. The dermatology model is the next component to connect.",
-        confidence: 0,
-        findings: [],
-        bodyPart: body.bodyPart || "Unknown"
+        status: status,
+        title: title,
+        message: message,
+        confidence: topConfidence,
+        findings: findings,
+        bodyPart:
+          body.bodyPart || "Unknown"
       }),
       {
         status: 200,
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type":
+            "application/json"
         }
       }
     );
   } catch (error) {
-    console.error("DERMA AI SERVER ERROR:", error);
+    console.error(
+      "DERMA AI MODEL ERROR:",
+      error
+    );
 
     return new Response(
       JSON.stringify({
         status: "error",
         title: "Analysis failed",
         message:
-          "The AI server could not process this image.",
+          "The skin-analysis model could not process this image. Please try again.",
         confidence: 0,
-        findings: []
+        findings: [],
+        bodyPart:
+          "Unknown"
       }),
       {
         status: 500,
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type":
+            "application/json"
         }
       }
     );
