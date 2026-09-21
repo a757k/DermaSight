@@ -38,26 +38,39 @@ function AnalysisScreen({
       }
 
       try {
-        const result = await analyzeImage(image, bodyPart);
+        const result = await analyzeImage(
+          image,
+          bodyPart
+        );
 
-        if (!cancelled) {
-          setProgress(100);
-          setMessage("Analysis complete.");
+        if (cancelled) return;
 
-          setTimeout(() => {
+        setProgress(100);
+        setMessage("Analysis complete.");
+
+        setTimeout(() => {
+          if (!cancelled) {
             onComplete(result);
-          }, 400);
-        }
-      } catch {
-        if (!cancelled) {
-          onComplete({
-            status: "unable",
-            title: "Unable to assess reliably",
-            message:
-              "The image could not be assessed reliably. Try taking another clear photo in good lighting.",
-            findings: []
-          });
-        }
+          }
+        }, 400);
+      } catch (error) {
+        if (cancelled) return;
+
+        console.error(
+          "DERMA AI ANALYSIS ERROR:",
+          error
+        );
+
+        onComplete({
+          status: "error",
+          title: "Analysis failed",
+          message:
+            error?.message ||
+            "Unknown analysis error.",
+          confidence: 0,
+          findings: [],
+          bodyPart: bodyPart
+        });
       }
     }
 
@@ -88,7 +101,9 @@ function AnalysisScreen({
       </div>
 
       <div className="analysis-content">
-        <div className="hero-badge">AI ANALYSIS</div>
+        <div className="hero-badge">
+          AI ANALYSIS
+        </div>
 
         <h1>Examining your image</h1>
 
@@ -97,7 +112,9 @@ function AnalysisScreen({
         <div className="progress-track">
           <div
             className="progress-bar"
-            style={{ width: `${progress}%` }}
+            style={{
+              width: progress + "%"
+            }}
           ></div>
         </div>
 
@@ -107,16 +124,24 @@ function AnalysisScreen({
 
         <div className="analysis-note">
           <span>✦</span>
+
           <div>
-            <strong>Safety-first analysis</strong>
+            <strong>
+              Safety-first analysis
+            </strong>
+
             <p>
-              The system can decline to give a result when
-              an image is unclear or confidence is insufficient.
+              The system can decline to give a
+              result when an image is unclear or
+              confidence is insufficient.
             </p>
           </div>
         </div>
 
-        <button className="secondary-button" onClick={onBack}>
+        <button
+          className="secondary-button"
+          onClick={onBack}
+        >
           Cancel analysis
         </button>
       </div>
