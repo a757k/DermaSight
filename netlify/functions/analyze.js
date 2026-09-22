@@ -1,4 +1,4 @@
-import { Client } from "@gradio/client";
+import { Client, handle_file } from "@gradio/client";
 
 export default async function handler(request) {
   if (request.method !== "POST") {
@@ -20,60 +20,43 @@ export default async function handler(request) {
     const body = await request.json();
 
     if (!body.image) {
-      return new Response(
-        JSON.stringify({
-          status: "error",
-          message: "No image was received."
-        }),
-        {
-          status: 400,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
+      throw new Error("No image was received.");
     }
 
-    console.log("DERMA AI: Image received.");
+    console.log("DERMA AI: Received image.");
 
     const commaIndex = body.image.indexOf(",");
 
     if (commaIndex === -1) {
-      throw new Error(
-        "Invalid image data."
-      );
+      throw new Error("Invalid image format.");
     }
 
-    const base64 = body.image.substring(
-      commaIndex + 1
-    );
+    const base64Image =
+      body.image.substring(commaIndex + 1);
 
-    const buffer = Buffer.from(
-      base64,
+    const imageBuffer = Buffer.from(
+      base64Image,
       "base64"
     );
 
-    if (!buffer.length) {
-      throw new Error(
-        "Image conversion produced an empty file."
-      );
+    if (!imageBuffer.length) {
+      throw new Error("Image conversion failed.");
     }
 
     console.log(
       "DERMA AI: Image size:",
-      buffer.length
+      imageBuffer.length
     );
 
-    const imageFile = new File(
-      [buffer],
-      "skin-image.jpg",
+    const imageBlob = new Blob(
+      [imageBuffer],
       {
         type: "image/jpeg"
       }
     );
 
     console.log(
-      "DERMA AI: Connecting to Hugging Face..."
+      "DERMA AI: Connecting to skin model..."
     );
 
     const app = await Client.connect(
@@ -81,127 +64,151 @@ export default async function handler(request) {
     );
 
     console.log(
-      "DERMA AI: Hugging Face connected."
-    );
-
-    /*
-     * The Space has one image input and one
-     * classification output.
-     *
-     * Current Gradio clients accept File/Blob
-     * objects for image inputs.
-     */
-
-    const result = await app.predict(
-      "/predict",
-      [imageFile]
+      "DERMA AI: Connected."
     );
 
     console.log(
-      "DERMA AI: RAW MODEL RESULT:",
+      "DERMA AI: Sending image..."
+    );
+
+    const imageInput =
+      handle_file(imageBlob);
+
+    const result = await app.predict(
+      "/predict",
+      [imageInput]
+    );
+
+    console.log(
+      "DERMA AI: Model result:",
       JSON.stringify(result)
     );
 
     if (
       !result ||
       !result.data ||
-      result.data.length === 0
+      !result.data[0]
     ) {
       throw new Error(
-        "Hugging Face returned no prediction."
+        "The skin model returned no predictions."
       );
     }
 
-    const raw = result.data[0];
-
-    console.log(
-      "DERMA AI: RAW PREDICTION:",
-      JSON.stringify(raw)
-    );
+    const predictionData =
+      result.data[0];
 
     let predictions = [];
 
+    /*
+     * Gradio Label output normally returns
+     * an object such as:
+     *
+     * {
+     *   "Eczema": 0.72,
+     *   "Acne / Rosacea": 0.10
+     * }
+     */
+
     if (
-      raw &&
-      typeof raw === "object" &&
-      !Array.isArray(raw)
+      predictionData &&
+      typeof predictionData === "object" &&
+      !Array.isArray(predictionData)
     ) {
-      predictions = Object.entries(raw).map(
-        ([label, score]) => ({
-          label: String(label),
-          confidence: Number(score)
-        })
-      );
+      predictions =
+        Object.entries(
+          predictionData
+        ).map(
+          ([label, score]) => ({
+            label: String(label),
+            confidence: Number(score)
+          })
+        );
     }
 
-    if (Array.isArray(raw)) {
-      predictions = raw
-        .map((item) => {
-          if (
-            Array.isArray(item) &&
-            item.length >= 2
-          ) {
-            return {
-              label: String(item[0]),
-              confidence: Number(item[1])
-            };
-          }
+    /*
+     * Backup handling in case Gradio returns
+     * an array instead.
+     */
 
-          if (
-            item &&
-            typeof item === "object"
-          ) {
-            return {
-              label:
-                item.label ||
-                item.name ||
-                "Unknown",
-              confidence:
-                Number(item.confidence) ||
-                Number(item.score) ||
-                0
-            };
-          }
+    if (Array.isArray(predictionData)) {
+      predictions =
+        predictionData
+          .map((item) => {
+            if (
+              Array.isArray(item) &&
+              item.length >= 2
+            ) {
+              return {
+                label: String(item[0]),
+                confidence:
+                  Number(item[1])
+              };
+            }
 
-          return null;
-        })
-        .filter(Boolean);
+            if (
+              item &&
+              typeof item === "object"
+            ) {
+              return {
+                label:
+                  item.label ||
+                  item.name ||
+                  "Unknown",
+                confidence:
+                  Number(
+                    item.confidence
+                  ) ||
+                  Number(item.score) ||
+                  0
+              };
+            }
+
+            return null;
+          })
+          .filter(Boolean);
     }
 
-    predictions = predictions
-      .filter(
-        (item) =>
-          item.label &&
-          Number.isFinite(item.confidence)
-      )
-      .sort(
-        (a, b) =>
-          b.confidence - a.confidence
-      )
-      .slice(0, 5);
+    predictions =
+      predictions
+        .filter(
+          (item) =>
+            item.label &&
+            Number.isFinite(
+              item.confidence
+            )
+        )
+        .sort(
+          (a, b) =>
+            b.confidence -
+            a.confidence
+        )
+        .slice(0, 5);
 
     if (!predictions.length) {
       throw new Error(
-        "The model responded, but the prediction format was unexpected."
+        "The model responded, but no predictions could be read."
       );
     }
 
-    const top = predictions[0];
+    const topPrediction =
+      predictions[0];
 
-    const confidence = Math.round(
-      top.confidence * 100
-    );
+    const topConfidence =
+      Math.round(
+        topPrediction.confidence * 100
+      );
 
     let status = "complete";
 
-    let title = "Possible visual match";
+    let title =
+      "Possible visual match";
 
     let message =
       "The AI detected visual characteristics that may be associated with " +
-      top.label +
+      topPrediction.label +
       ". This is not a medical diagnosis.";
 
-    if (confidence < 55) {
+    if (topConfidence < 55) {
       status = "unable";
 
       title =
@@ -211,29 +218,32 @@ export default async function handler(request) {
         "The AI did not find a strong enough visual match to provide a reliable screening result.";
     }
 
-    const findings = predictions.map(
-      (item) => ({
-        name: item.label,
+    const findings =
+      predictions.map(
+        (item) => ({
+          name: item.label,
 
-        description:
-          "Visual characteristics may be associated with this category.",
+          description:
+            "Visual characteristics may be associated with this category.",
 
-        confidence:
-          Math.round(
-            item.confidence * 100
-          ) + "%"
-      })
-    );
+          confidence:
+            Math.round(
+              item.confidence * 100
+            ) + "%"
+        })
+      );
 
     return new Response(
       JSON.stringify({
         status: status,
         title: title,
         message: message,
-        confidence: confidence,
+        confidence:
+          topConfidence,
         findings: findings,
         bodyPart:
-          body.bodyPart || "Unknown"
+          body.bodyPart ||
+          "Unknown"
       }),
       {
         status: 200,
@@ -245,7 +255,7 @@ export default async function handler(request) {
     );
   } catch (error) {
     console.error(
-      "DERMA AI REAL ERROR:",
+      "DERMA AI ERROR:",
       error
     );
 
@@ -254,13 +264,14 @@ export default async function handler(request) {
         status: "error",
         title: "Analysis failed",
         message:
-          error?.message ||
-          String(error) ||
-          "Unknown server error.",
+          error &&
+          error.message
+            ? error.message
+            : String(error),
         confidence: 0,
         findings: [],
         bodyPart:
-          body?.bodyPart || "Unknown"
+          "Unknown"
       }),
       {
         status: 500,
