@@ -1,4 +1,4 @@
-import { Client, handle_file } from "@gradio/client";
+import { Client } from "@gradio/client";
 
 export default async function handler(request) {
   if (request.method !== "POST") {
@@ -23,7 +23,7 @@ export default async function handler(request) {
       return new Response(
         JSON.stringify({
           status: "error",
-          message: "No image was received by the AI server."
+          message: "No image was received."
         }),
         {
           status: 400,
@@ -34,40 +34,46 @@ export default async function handler(request) {
       );
     }
 
-    console.log("DERMA AI: Starting analysis.");
+    console.log("DERMA AI: Image received.");
 
     const commaIndex = body.image.indexOf(",");
 
     if (commaIndex === -1) {
-      throw new Error("Invalid image format.");
+      throw new Error(
+        "Invalid image data."
+      );
     }
 
-    const base64Image =
-      body.image.substring(commaIndex + 1);
+    const base64 = body.image.substring(
+      commaIndex + 1
+    );
 
-    const imageBuffer = Buffer.from(
-      base64Image,
+    const buffer = Buffer.from(
+      base64,
       "base64"
     );
 
-    console.log(
-      "DERMA AI: Image received. Size:",
-      imageBuffer.length
-    );
-
-    if (imageBuffer.length === 0) {
-      throw new Error("The uploaded image was empty.");
+    if (!buffer.length) {
+      throw new Error(
+        "Image conversion produced an empty file."
+      );
     }
 
-    const imageBlob = new Blob(
-      [imageBuffer],
+    console.log(
+      "DERMA AI: Image size:",
+      buffer.length
+    );
+
+    const imageFile = new File(
+      [buffer],
+      "skin-image.jpg",
       {
         type: "image/jpeg"
       }
     );
 
     console.log(
-      "DERMA AI: Connecting to Gradio model..."
+      "DERMA AI: Connecting to Hugging Face..."
     );
 
     const app = await Client.connect(
@@ -75,23 +81,25 @@ export default async function handler(request) {
     );
 
     console.log(
-      "DERMA AI: Connected successfully."
+      "DERMA AI: Hugging Face connected."
     );
 
-    console.log(
-      "DERMA AI: Sending image to /predict..."
-    );
+    /*
+     * The Space has one image input and one
+     * classification output.
+     *
+     * Current Gradio clients accept File/Blob
+     * objects for image inputs.
+     */
 
     const result = await app.predict(
       "/predict",
-      [
-        handle_file(imageBlob)
-      ]
+      [imageFile]
     );
 
     console.log(
-      "DERMA AI: Model returned:",
-      result
+      "DERMA AI: RAW MODEL RESULT:",
+      JSON.stringify(result)
     );
 
     if (
@@ -100,34 +108,34 @@ export default async function handler(request) {
       result.data.length === 0
     ) {
       throw new Error(
-        "The AI model returned an empty response."
+        "Hugging Face returned no prediction."
       );
     }
 
-    const predictionData = result.data[0];
+    const raw = result.data[0];
 
     console.log(
-      "DERMA AI: Prediction data:",
-      predictionData
+      "DERMA AI: RAW PREDICTION:",
+      JSON.stringify(raw)
     );
 
     let predictions = [];
 
     if (
-      predictionData &&
-      typeof predictionData === "object" &&
-      !Array.isArray(predictionData)
+      raw &&
+      typeof raw === "object" &&
+      !Array.isArray(raw)
     ) {
-      predictions = Object.entries(
-        predictionData
-      ).map(([label, score]) => ({
-        label: String(label),
-        confidence: Number(score)
-      }));
+      predictions = Object.entries(raw).map(
+        ([label, score]) => ({
+          label: String(label),
+          confidence: Number(score)
+        })
+      );
     }
 
-    if (Array.isArray(predictionData)) {
-      predictions = predictionData
+    if (Array.isArray(raw)) {
+      predictions = raw
         .map((item) => {
           if (
             Array.isArray(item) &&
@@ -172,26 +180,28 @@ export default async function handler(request) {
       )
       .slice(0, 5);
 
-    if (predictions.length === 0) {
+    if (!predictions.length) {
       throw new Error(
-        "The AI responded, but its prediction format could not be read."
+        "The model responded, but the prediction format was unexpected."
       );
     }
 
-    const topPrediction = predictions[0];
+    const top = predictions[0];
 
-    const topConfidence = Math.round(
-      topPrediction.confidence * 100
+    const confidence = Math.round(
+      top.confidence * 100
     );
 
     let status = "complete";
+
     let title = "Possible visual match";
+
     let message =
       "The AI detected visual characteristics that may be associated with " +
-      topPrediction.label +
+      top.label +
       ". This is not a medical diagnosis.";
 
-    if (topConfidence < 55) {
+    if (confidence < 55) {
       status = "unable";
 
       title =
@@ -220,7 +230,7 @@ export default async function handler(request) {
         status: status,
         title: title,
         message: message,
-        confidence: topConfidence,
+        confidence: confidence,
         findings: findings,
         bodyPart:
           body.bodyPart || "Unknown"
@@ -239,23 +249,18 @@ export default async function handler(request) {
       error
     );
 
-    const errorMessage =
-      error &&
-      error.message
-        ? error.message
-        : String(error);
-
     return new Response(
       JSON.stringify({
         status: "error",
-        title: "AI server error",
+        title: "Analysis failed",
         message:
-          "REAL ERROR: " +
-          errorMessage,
+          error?.message ||
+          String(error) ||
+          "Unknown server error.",
         confidence: 0,
         findings: [],
         bodyPart:
-          "Unknown"
+          body?.bodyPart || "Unknown"
       }),
       {
         status: 500,
