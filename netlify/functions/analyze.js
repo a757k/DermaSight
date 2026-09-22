@@ -1,5 +1,3 @@
-import { Client, handle_file } from "@gradio/client";
-
 export default async function handler(request) {
   if (request.method !== "POST") {
     return new Response(
@@ -23,7 +21,7 @@ export default async function handler(request) {
       throw new Error("No image was received.");
     }
 
-    console.log("DERMA AI: Received image.");
+    console.log("DERMA AI: Image received.");
 
     const commaIndex = body.image.indexOf(",");
 
@@ -40,7 +38,9 @@ export default async function handler(request) {
     );
 
     if (!imageBuffer.length) {
-      throw new Error("Image conversion failed.");
+      throw new Error(
+        "Image conversion failed."
+      );
     }
 
     console.log(
@@ -48,76 +48,109 @@ export default async function handler(request) {
       imageBuffer.length
     );
 
-    const imageBlob = new Blob(
-      [imageBuffer],
+    /*
+     * Upload the image to the Hugging Face
+     * Space's file endpoint.
+     */
+
+    const uploadResponse = await fetch(
+      "https://cybernatedart-skin-disease-detection.hf.space/upload",
       {
-        type: "image/jpeg"
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream"
+        },
+        body: imageBuffer
       }
     );
 
-    console.log(
-      "DERMA AI: Connecting to skin model..."
-    );
-
-    const app = await Client.connect(
-      "cybernatedArt/Skin_disease_detection"
-    );
-
-    console.log(
-      "DERMA AI: Connected."
-    );
-
-    console.log(
-      "DERMA AI: Sending image..."
-    );
-
-    const imageInput =
-      handle_file(imageBlob);
-
-    const result = await app.predict(
-      "/predict",
-      [imageInput]
-    );
-
-    console.log(
-      "DERMA AI: Model result:",
-      JSON.stringify(result)
-    );
-
-    if (
-      !result ||
-      !result.data ||
-      !result.data[0]
-    ) {
+    if (!uploadResponse.ok) {
       throw new Error(
-        "The skin model returned no predictions."
+        "Image upload to the AI server failed. HTTP " +
+        uploadResponse.status
       );
     }
 
-    const predictionData =
-      result.data[0];
+    const uploadData =
+      await uploadResponse.json();
+
+    console.log(
+      "DERMA AI: Upload response:",
+      JSON.stringify(uploadData)
+    );
+
+    if (
+      !uploadData ||
+      !uploadData.path
+    ) {
+      throw new Error(
+        "AI server did not return an uploaded image path."
+      );
+    }
+
+    /*
+     * Ask the Space to make its prediction.
+     */
+
+    const predictResponse = await fetch(
+      "https://cybernatedart-skin-disease-detection.hf.space/run/predict",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          data: [
+            {
+              path: uploadData.path
+            }
+          ]
+        })
+      }
+    );
+
+    const predictText =
+      await predictResponse.text();
+
+    console.log(
+      "DERMA AI: Prediction response:",
+      predictText
+    );
+
+    if (!predictResponse.ok) {
+      throw new Error(
+        "AI prediction failed. HTTP " +
+        predictResponse.status +
+        ": " +
+        predictText
+      );
+    }
+
+    const prediction =
+      JSON.parse(predictText);
+
+    if (
+      !prediction ||
+      !prediction.data ||
+      !prediction.data[0]
+    ) {
+      throw new Error(
+        "AI returned no prediction."
+      );
+    }
+
+    const raw =
+      prediction.data[0];
 
     let predictions = [];
 
-    /*
-     * Gradio Label output normally returns
-     * an object such as:
-     *
-     * {
-     *   "Eczema": 0.72,
-     *   "Acne / Rosacea": 0.10
-     * }
-     */
-
     if (
-      predictionData &&
-      typeof predictionData === "object" &&
-      !Array.isArray(predictionData)
+      raw &&
+      typeof raw === "object" &&
+      !Array.isArray(raw)
     ) {
       predictions =
-        Object.entries(
-          predictionData
-        ).map(
+        Object.entries(raw).map(
           ([label, score]) => ({
             label: String(label),
             confidence: Number(score)
@@ -125,14 +158,9 @@ export default async function handler(request) {
         );
     }
 
-    /*
-     * Backup handling in case Gradio returns
-     * an array instead.
-     */
-
-    if (Array.isArray(predictionData)) {
+    if (Array.isArray(raw)) {
       predictions =
-        predictionData
+        raw
           .map((item) => {
             if (
               Array.isArray(item) &&
@@ -186,29 +214,28 @@ export default async function handler(request) {
 
     if (!predictions.length) {
       throw new Error(
-        "The model responded, but no predictions could be read."
+        "AI responded, but no predictions could be read."
       );
     }
 
-    const topPrediction =
+    const top =
       predictions[0];
 
-    const topConfidence =
+    const confidence =
       Math.round(
-        topPrediction.confidence * 100
+        top.confidence * 100
       );
 
     let status = "complete";
-
     let title =
       "Possible visual match";
 
     let message =
       "The AI detected visual characteristics that may be associated with " +
-      topPrediction.label +
+      top.label +
       ". This is not a medical diagnosis.";
 
-    if (topConfidence < 55) {
+    if (confidence < 55) {
       status = "unable";
 
       title =
@@ -222,10 +249,8 @@ export default async function handler(request) {
       predictions.map(
         (item) => ({
           name: item.label,
-
           description:
             "Visual characteristics may be associated with this category.",
-
           confidence:
             Math.round(
               item.confidence * 100
@@ -235,12 +260,11 @@ export default async function handler(request) {
 
     return new Response(
       JSON.stringify({
-        status: status,
-        title: title,
-        message: message,
-        confidence:
-          topConfidence,
-        findings: findings,
+        status,
+        title,
+        message,
+        confidence,
+        findings,
         bodyPart:
           body.bodyPart ||
           "Unknown"
@@ -255,7 +279,7 @@ export default async function handler(request) {
     );
   } catch (error) {
     console.error(
-      "DERMA AI ERROR:",
+      "DERMA AI REAL ERROR:",
       error
     );
 
@@ -264,10 +288,8 @@ export default async function handler(request) {
         status: "error",
         title: "Analysis failed",
         message:
-          error &&
-          error.message
-            ? error.message
-            : String(error),
+          error?.message ||
+          String(error),
         confidence: 0,
         findings: [],
         bodyPart:
