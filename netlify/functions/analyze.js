@@ -58,12 +58,6 @@ export default async function handler(request) {
       }
     );
 
-    /*
-      IMPORTANT:
-      Dermex expects the uploaded image
-      under the field name "file".
-    */
-
     form.append(
       "file",
       imageBlob,
@@ -111,144 +105,47 @@ export default async function handler(request) {
         JSON.parse(responseText);
     } catch {
       throw new Error(
-        "Dermex returned invalid JSON: " +
-          responseText
+        "Dermex returned invalid JSON."
       );
     }
 
-    console.log(
-      "DERMA AI: Parsed prediction:",
-      prediction
-    );
-
     /*
-      Dermex may return predictions in
-      different structures, so normalize them.
-    */
+      Dermex response:
 
-    let predictions = [];
-
-    if (Array.isArray(prediction)) {
-      predictions = prediction;
-    }
-
-    if (
-      Array.isArray(
-        prediction.predictions
-      )
-    ) {
-      predictions =
-        prediction.predictions;
-    }
-
-    if (
-      Array.isArray(
-        prediction.results
-      )
-    ) {
-      predictions =
-        prediction.results;
-    }
-
-    if (
-      prediction.result &&
-      Array.isArray(
-        prediction.result
-      )
-    ) {
-      predictions =
-        prediction.result;
-    }
-
-    if (
-      !predictions.length &&
-      prediction.label
-    ) {
-      predictions = [
-        {
-          label:
-            prediction.label,
-
-          confidence:
-            prediction.confidence ??
-            prediction.score ??
-            prediction.probability ??
-            0
+      {
+        success: true,
+        prediction: "AK",
+        confidence: 0.57,
+        details: {
+          AK: 0.57,
+          DF: 0.26,
+          ...
         }
-      ];
-    }
-
-    if (
-      !predictions.length &&
-      prediction.result &&
-      typeof prediction.result ===
-        "object" &&
-      !Array.isArray(
-        prediction.result
-      )
-    ) {
-      predictions =
-        Object.entries(
-          prediction.result
-        ).map(
-          ([label, confidence]) => ({
-            label,
-            confidence
-          })
-        );
-    }
-
-    /*
-      Normalize individual prediction objects.
+      }
     */
 
-    predictions =
-      predictions
-        .map((item) => {
-          if (Array.isArray(item)) {
-            return {
-              label: String(
-                item[0]
-              ),
+    if (
+      !prediction.details ||
+      typeof prediction.details !==
+        "object"
+    ) {
+      throw new Error(
+        "Dermex returned no prediction details."
+      );
+    }
 
-              confidence:
-                Number(item[1])
-            };
-          }
-
-          if (
-            item &&
-            typeof item ===
-              "object"
-          ) {
-            return {
-              label:
-                item.label ||
-                item.name ||
-                item.class ||
-                item.category ||
-                "Unknown",
-
-              confidence:
-                Number(
-                  item.confidence
-                ) ||
-                Number(
-                  item.score
-                ) ||
-                Number(
-                  item.probability
-                ) ||
-                0
-            };
-          }
-
-          return null;
-        })
-        .filter(Boolean)
+    const predictions =
+      Object.entries(
+        prediction.details
+      )
+        .map(
+          ([label, score]) => ({
+            label: String(label),
+            confidence: Number(score)
+          })
+        )
         .filter(
           (item) =>
-            item.label &&
             Number.isFinite(
               item.confidence
             )
@@ -262,84 +159,65 @@ export default async function handler(request) {
 
     if (!predictions.length) {
       throw new Error(
-        "Dermex successfully received the image, but its prediction response could not be read. Raw response: " +
-          responseText
+        "No usable predictions were returned."
       );
     }
 
     console.log(
-      "DERMA AI: Final predictions:",
+      "DERMA AI: Parsed predictions:",
       predictions
     );
 
     const topPrediction =
       predictions[0];
 
-    let topConfidence =
-      Number(
-        topPrediction.confidence
-      );
-
-    /*
-      Some APIs return 0.91.
-      Others return 91.
-    */
-
-    if (
-      topConfidence >= 0 &&
-      topConfidence <= 1
-    ) {
-      topConfidence *= 100;
-    }
-
-    topConfidence =
+    const topConfidence =
       Math.round(
-        topConfidence
+        topPrediction.confidence * 100
       );
+
+    const diseaseNames = {
+      AK: "Actinic Keratosis",
+      DF: "Dermatofibroma",
+      VASC: "Vascular Lesion",
+      SCC: "Squamous Cell Carcinoma",
+      NV: "Melanocytic Nevus",
+      BCC: "Basal Cell Carcinoma",
+      BKL: "Benign Keratosis",
+      MEL: "Melanoma"
+    };
 
     const findings =
       predictions.map(
-        (item) => {
-          let confidence =
-            Number(
-              item.confidence
-            );
+        (item) => ({
+          name:
+            diseaseNames[item.label] ||
+            item.label,
 
-          if (
-            confidence >= 0 &&
-            confidence <= 1
-          ) {
-            confidence *= 100;
-          }
+          description:
+            "The AI classifier detected visual characteristics associated with this category. This is not a medical diagnosis.",
 
-          return {
-            name:
-              item.label,
-
-            description:
-              "The AI classifier detected visual characteristics associated with this category. This is not a medical diagnosis.",
-
-            confidence:
-              Math.round(
-                confidence
-              ) + "%"
-          };
-        }
+          confidence:
+            Math.round(
+              item.confidence * 100
+            ) + "%"
+        })
       );
 
+    const topName =
+      diseaseNames[
+        topPrediction.label
+      ] ||
+      topPrediction.label;
+
     /*
-      Safety threshold.
-      A classifier score is NOT a medical
-      probability.
+      Confidence gate.
     */
 
-    if (
-      topConfidence < 55
-    ) {
+    if (topConfidence < 55) {
       return new Response(
         JSON.stringify({
-          status:
-            "unable",
+          status: "unable",
 
           title:
             "Unable to assess reliably",
@@ -368,14 +246,15 @@ export default async function handler(request) {
 
     return new Response(
       JSON.stringify({
-        status:
-          "complete",
+        status: "complete",
 
         title:
           "Possible visual match",
 
         message:
-          "The AI detected visual characteristics that may be associated with the categories shown below. This is an AI screening result, not a medical diagnosis.",
+          "The AI detected visual characteristics that may be associated with " +
+          topName +
+          ". This is an AI screening result, not a medical diagnosis.",
 
         confidence:
           topConfidence,
@@ -402,8 +281,7 @@ export default async function handler(request) {
 
     return new Response(
       JSON.stringify({
-        status:
-          "error",
+        status: "error",
 
         title:
           "Analysis failed",
@@ -412,8 +290,7 @@ export default async function handler(request) {
           error?.message ||
           String(error),
 
-        confidence:
-          0,
+        confidence: 0,
 
         findings: [],
 
