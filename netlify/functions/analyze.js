@@ -3,7 +3,10 @@ export default async function handler(request) {
     return new Response(
       JSON.stringify({
         status: "error",
-        message: "Only POST requests are allowed."
+        title: "Method not allowed",
+        message: "Only POST requests are allowed.",
+        confidence: 0,
+        findings: []
       }),
       {
         status: 405,
@@ -23,24 +26,22 @@ export default async function handler(request) {
 
     console.log("DERMA AI: Image received.");
 
-    // Convert base64 data URL into binary image data
     const commaIndex = body.image.indexOf(",");
 
     if (commaIndex === -1) {
       throw new Error("Invalid image format.");
     }
 
-    const base64 = body.image.substring(
-      commaIndex + 1
-    );
+    const base64Image =
+      body.image.substring(commaIndex + 1);
 
     const imageBuffer = Buffer.from(
-      base64,
+      base64Image,
       "base64"
     );
 
     if (!imageBuffer.length) {
-      throw new Error("Could not decode image.");
+      throw new Error("Could not decode the image.");
     }
 
     console.log(
@@ -48,19 +49,24 @@ export default async function handler(request) {
       imageBuffer.length
     );
 
-    // Send image to the running Dermex API
     const form = new FormData();
 
-    const blob = new Blob(
+    const imageBlob = new Blob(
       [imageBuffer],
       {
         type: "image/jpeg"
       }
     );
 
+    /*
+      IMPORTANT:
+      Dermex expects the uploaded image
+      under the field name "file".
+    */
+
     form.append(
-      "image",
-      blob,
+      "file",
+      imageBlob,
       "skin.jpg"
     );
 
@@ -92,9 +98,9 @@ export default async function handler(request) {
     if (!response.ok) {
       throw new Error(
         "Dermex returned HTTP " +
-        response.status +
-        ": " +
-        responseText
+          response.status +
+          ": " +
+          responseText
       );
     }
 
@@ -106,34 +112,18 @@ export default async function handler(request) {
     } catch {
       throw new Error(
         "Dermex returned invalid JSON: " +
-        responseText
+          responseText
       );
     }
 
     console.log(
-      "DERMA AI: Prediction:",
+      "DERMA AI: Parsed prediction:",
       prediction
     );
 
     /*
-      Try to support the common response formats:
-      
-      {
-        "label": "...",
-        "confidence": 0.91
-      }
-
-      or
-
-      {
-        "predictions": [...]
-      }
-
-      or
-
-      {
-        "result": {...}
-      }
+      Dermex may return predictions in
+      different structures, so normalize them.
     */
 
     let predictions = [];
@@ -152,6 +142,15 @@ export default async function handler(request) {
     }
 
     if (
+      Array.isArray(
+        prediction.results
+      )
+    ) {
+      predictions =
+        prediction.results;
+    }
+
+    if (
       prediction.result &&
       Array.isArray(
         prediction.result
@@ -167,10 +166,13 @@ export default async function handler(request) {
     ) {
       predictions = [
         {
-          label: prediction.label,
+          label:
+            prediction.label,
+
           confidence:
             prediction.confidence ??
             prediction.score ??
+            prediction.probability ??
             0
         }
       ];
@@ -180,7 +182,10 @@ export default async function handler(request) {
       !predictions.length &&
       prediction.result &&
       typeof prediction.result ===
-        "object"
+        "object" &&
+      !Array.isArray(
+        prediction.result
+      )
     ) {
       predictions =
         Object.entries(
@@ -193,15 +198,19 @@ export default async function handler(request) {
         );
     }
 
-    // Convert different possible formats
+    /*
+      Normalize individual prediction objects.
+    */
+
     predictions =
       predictions
         .map((item) => {
-          if (
-            Array.isArray(item)
-          ) {
+          if (Array.isArray(item)) {
             return {
-              label: String(item[0]),
+              label: String(
+                item[0]
+              ),
+
               confidence:
                 Number(item[1])
             };
@@ -217,13 +226,16 @@ export default async function handler(request) {
                 item.label ||
                 item.name ||
                 item.class ||
+                item.category ||
                 "Unknown",
 
               confidence:
                 Number(
                   item.confidence
                 ) ||
-                Number(item.score) ||
+                Number(
+                  item.score
+                ) ||
                 Number(
                   item.probability
                 ) ||
@@ -250,57 +262,84 @@ export default async function handler(request) {
 
     if (!predictions.length) {
       throw new Error(
-        "Dermex responded, but its prediction format could not be read. Raw response: " +
+        "Dermex successfully received the image, but its prediction response could not be read. Raw response: " +
           responseText
       );
     }
 
-    const top =
+    console.log(
+      "DERMA AI: Final predictions:",
+      predictions
+    );
+
+    const topPrediction =
       predictions[0];
 
-    let confidence =
-      top.confidence;
+    let topConfidence =
+      Number(
+        topPrediction.confidence
+      );
 
-    // Handle either 0.92 or 92
-    if (confidence <= 1) {
-      confidence *= 100;
+    /*
+      Some APIs return 0.91.
+      Others return 91.
+    */
+
+    if (
+      topConfidence >= 0 &&
+      topConfidence <= 1
+    ) {
+      topConfidence *= 100;
     }
 
-    confidence =
-      Math.round(confidence);
+    topConfidence =
+      Math.round(
+        topConfidence
+      );
 
     const findings =
       predictions.map(
         (item) => {
-          let score =
-            item.confidence;
+          let confidence =
+            Number(
+              item.confidence
+            );
 
-          if (score <= 1) {
-            score *= 100;
+          if (
+            confidence >= 0 &&
+            confidence <= 1
+          ) {
+            confidence *= 100;
           }
 
           return {
-            name: item.label,
+            name:
+              item.label,
 
             description:
-              "The AI classifier detected visual characteristics associated with this category. This is not a diagnosis.",
+              "The AI classifier detected visual characteristics associated with this category. This is not a medical diagnosis.",
 
             confidence:
-              Math.round(score) + "%"
+              Math.round(
+                confidence
+              ) + "%"
           };
         }
       );
 
     /*
-      Safety gate:
-      We do NOT turn the classifier score into
-      a claim that the person has the disease.
+      Safety threshold.
+      A classifier score is NOT a medical
+      probability.
     */
 
-    if (confidence < 55) {
+    if (
+      topConfidence < 55
+    ) {
       return new Response(
         JSON.stringify({
-          status: "unable",
+          status:
+            "unable",
 
           title:
             "Unable to assess reliably",
@@ -308,7 +347,8 @@ export default async function handler(request) {
           message:
             "The AI did not produce a strong enough visual classification. No condition should be assumed from this result.",
 
-          confidence,
+          confidence:
+            topConfidence,
 
           findings,
 
@@ -328,7 +368,8 @@ export default async function handler(request) {
 
     return new Response(
       JSON.stringify({
-        status: "complete",
+        status:
+          "complete",
 
         title:
           "Possible visual match",
@@ -336,7 +377,8 @@ export default async function handler(request) {
         message:
           "The AI detected visual characteristics that may be associated with the categories shown below. This is an AI screening result, not a medical diagnosis.",
 
-        confidence,
+        confidence:
+          topConfidence,
 
         findings,
 
@@ -360,7 +402,8 @@ export default async function handler(request) {
 
     return new Response(
       JSON.stringify({
-        status: "error",
+        status:
+          "error",
 
         title:
           "Analysis failed",
@@ -369,7 +412,8 @@ export default async function handler(request) {
           error?.message ||
           String(error),
 
-        confidence: 0,
+        confidence:
+          0,
 
         findings: [],
 
